@@ -1,4 +1,0 @@
-Flask
-gunicorn
-requests
-facebook_business
