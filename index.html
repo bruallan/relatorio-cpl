@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Custo Por Lead</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* --- NOVO TEMA CLARO (CSS) --- */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+
+        :root {
+            --bg-color: #f4f7f6; /* Fundo cinza claro */
+            --card-color: #ffffff; /* Cards brancos */
+            --font-color: #1a1a2e; /* Fonte escura */
+            --font-color-light: #6c757d; /* Fonte secundária cinza */
+            --accent-blue: #007bff; /* Azul mais vibrante */
+            --accent-green: #28a745; /* Verde mais vibrante */
+            --shadow-color: rgba(0, 0, 0, 0.1);
+            --border-color: #dee2e6; /* Borda cinza claro */
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--font-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background-color: var(--card-color);
+            border-radius: 15px;
+            box-shadow: 0 4px 12px var(--shadow-color);
+            padding: 30px;
+            border: 1px solid var(--border-color);
+        }
+
+        header { text-align: center; margin-bottom: 20px; }
+        header h1 { font-weight: 700; font-size: 2.5rem; color: var(--font-color); }
+
+        .filters {
+            display: flex; flex-wrap: wrap; gap: 20px;
+            justify-content: center; align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .filter-group { display: flex; flex-direction: column; }
+        .filter-group label { margin-bottom: 8px; font-size: 0.9rem; font-weight: 400; color: var(--font-color-light); }
+        .filter-group input {
+            background-color: #fff; border: 1px solid var(--border-color);
+            color: var(--font-color); padding: 12px 15px;
+            border-radius: 8px; font-size: 1rem; transition: all 0.3s ease;
+        }
+        .filter-group input:focus {
+            outline: none; border-color: var(--accent-blue);
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.25);
+        }
+        .update-button {
+            cursor: pointer; 
+            background: linear-gradient(45deg, var(--accent-blue), var(--accent-green));
+            color: #fff;
+            border: none; font-weight: 700; align-self: flex-end;
+            padding: 12px 15px; border-radius: 8px; font-size: 1rem; transition: all 0.3s ease;
+        }
+        .update-button:hover {
+            transform: translateY(-2px); box-shadow: 0 5px 15px var(--shadow-color);
+        }
+        
+        .summary-cards {
+            display: flex; justify-content: center;
+            gap: 30px; margin-bottom: 40px; flex-wrap: wrap;
+        }
+
+        .cpl-card {
+            background-color: var(--card-color);
+            padding: 20px 30px; border-radius: 10px;
+            text-align: center; border-left: 5px solid;
+            min-width: 250px; border-bottom: 1px solid var(--border-color);
+        }
+
+        .cpl-card h3 { font-size: 1rem; font-weight: 400; color: var(--font-color-light); margin-bottom: 10px; }
+        .cpl-card .cpl-value { font-size: 2.2rem; font-weight: 700; }
+        .cpl-card.bella-serra { border-color: var(--accent-blue); }
+        .cpl-card.vista-bella { border-color: var(--accent-green); }
+        
+        .chart-container { position: relative; height: 50vh; width: 100%; }
+        .loader {
+            border: 8px solid #f3f3f3; border-radius: 50%;
+            border-top: 8px solid var(--accent-blue); width: 60px; height: 60px;
+            animation: spin 1s linear infinite; position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            display: none;
+        }
+        @keyframes spin { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+        /* NOVO: Elemento para exibir período na impressão (escondido na tela) */
+        #print-period-display {
+            display: none;
+        }
+
+        /* --- CSS PARA IMPRESSÃO ATUALIZADO --- */
+        @media print {
+            /* Remove margens e paddings padrões da impressão */
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background-color: #fff !important; /* Força fundo branco */
+            }
+
+            /* Esconde os filtros interativos */
+            .filters {
+                display: none !important;
+            }
+
+            /* MOSTRA o texto com o período, que estava escondido */
+            #print-period-display {
+                display: block !important;
+                text-align: center;
+                margin-bottom: 20px;
+                font-size: 1.1rem;
+                color: #333;
+            }
+
+            /* Ajusta o container principal para a página de impressão */
+            .container {
+                box-shadow: none !important;
+                border: none !important;
+                width: 100% !important; max-width: 100% !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>Relatório de Custo Por Lead (CPL)</h1>
+        </header>
+        <main>
+            <p id="print-period-display"></p>
+
+            <section class="filters">
+                <div class="filter-group">
+                    <label for="start-date">Data Inicial</label>
+                    <input type="date" id="start-date">
+                </div>
+                <div class="filter-group">
+                    <label for="end-date">Data Final</label>
+                    <input type="date" id="end-date">
+                </div>
+                <button id="update-btn" class="update-button">Atualizar Gráfico</button>
+            </section>
+
+            <section class="summary-cards">
+                <div class="cpl-card bella-serra">
+                    <h3>CPL Médio - Bella Serra</h3>
+                    <p class="cpl-value" id="avg-cpl-1">R$ 0.00</p>
+                </div>
+                <div class="cpl-card vista-bella">
+                    <h3>CPL Médio - Vista Bella</h3>
+                    <p class="cpl-value" id="avg-cpl-2">R$ 0.00</p>
+                </div>
+            </section>
+
+            <section class="chart-container">
+                <div class="loader" id="loader"></div>
+                <canvas id="cplChart"></canvas>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // Referências aos elementos HTML
+        const startDateInput = document.getElementById('start-date');
+        const endDateInput = document.getElementById('end-date');
+        const updateButton = document.getElementById('update-btn');
+        const loader = document.getElementById('loader');
+        const ctx = document.getElementById('cplChart').getContext('2d');
+        const avgCpl1Element = document.getElementById('avg-cpl-1');
+        const avgCpl2Element = document.getElementById('avg-cpl-2');
+        
+        // NOVO: Referência ao elemento de período para impressão
+        const printPeriodDisplay = document.getElementById('print-period-display');
+
+        let myChart;
+
+        // Função para formatar a data para o padrão brasileiro (dd/mm/yyyy)
+        function formatDate(dateString) {
+            const [year, month, day] = dateString.split('-');
+            return `${day}/${month}/${year}`;
+        }
+
+        async function fetchAndUpdateChart() {
+            loader.style.display = 'block';
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+            const apiUrl = `/get_data?start_date=${startDate}&end_date=${endDate}`;
+
+            // NOVO: Atualiza o texto do período para a impressão
+            printPeriodDisplay.textContent = `Período Analisado: ${formatDate(startDate)} a ${formatDate(endDate)}`;
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error('Erro ao buscar os dados.');
+                const data = await response.json();
+                
+                avgCpl1Element.textContent = `R$ ${data.account1.stats.average_cpl.toFixed(2)}`;
+                avgCpl2Element.textContent = `R$ ${data.account2.stats.average_cpl.toFixed(2)}`;
+                
+                const allDates = new Set();
+                data.account1.stats.daily_data.forEach(d => allDates.add(d.date));
+                data.account2.stats.daily_data.forEach(d => allDates.add(d.date));
+                const labels = Array.from(allDates).sort();
+
+                const createDataset = (accountData) => {
+                    const dataMap = new Map(accountData.stats.daily_data.map(d => [d.date, d]));
+                    return labels.map(date => {
+                        const dayData = dataMap.get(date);
+                        return dayData ? dayData : { date: date, cpl: 0, total_spend: 0, total_results: 0 };
+                    });
+                };
+                const dataset1 = createDataset(data.account1);
+                const dataset2 = createDataset(data.account2);
+                renderChart(labels, data, dataset1, dataset2);
+            } catch (error) {
+                console.error("Falha na operação:", error);
+                alert("Não foi possível carregar os dados do gráfico.");
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function renderChart(labels, result, dataset1, dataset2) {
+            if (myChart) { myChart.destroy(); }
+            // Ajustes de cores para o tema claro no Chart.js
+            const gridColor = 'rgba(0, 0, 0, 0.1)';
+            const ticksColor = '#6c757d';
+            const legendColor = '#1a1a2e';
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: result.account1.name, data: dataset1.map(d => d.cpl), customData: dataset1, borderColor: 'rgba(0, 123, 255, 1)', backgroundColor: 'rgba(0, 123, 255, 0.1)', borderWidth: 3, tension: 0.4, fill: true },
+                        { label: result.account2.name, data: dataset2.map(d => d.cpl), customData: dataset2, borderColor: 'rgba(40, 167, 69, 1)', backgroundColor: 'rgba(40, 167, 69, 0.1)', borderWidth: 3, tension: 0.4, fill: true }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false, },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { color: ticksColor, callback: value => 'R$ ' + value.toFixed(2) }, grid: { color: gridColor } },
+                        x: { ticks: { color: ticksColor }, grid: { color: gridColor } }
+                    },
+                    plugins: {
+                        legend: { labels: { color: legendColor } },
+                        tooltip: { callbacks: { /* ... (sem alterações aqui) */ } }
+                    }
+                }
+            });
+        }
+        
+        const today = new Date();
+        const thirtyDaysAgo = new Date(new Date().setDate(today.getDate() - 29));
+        endDateInput.value = today.toISOString().split('T')[0];
+        startDateInput.value = thirtyDaysAgo.toISOString().split('T')[0];
+        updateButton.addEventListener('click', fetchAndUpdateChart);
+        document.addEventListener('DOMContentLoaded', fetchAndUpdateChart);
+    </script>
+</body>
+</html>
