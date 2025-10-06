@@ -8,33 +8,28 @@ from facebook_business.adobjects.adaccount import AdAccount
 from facebook_business.exceptions import FacebookRequestError
 from datetime import datetime, timedelta
 
-# --- CONFIGURAÇÃO ---
+# --- CONFIGURAÇÃO (sem alterações) ---
 MY_APP_ID = os.environ.get('MY_APP_ID')
 MY_APP_SECRET = os.environ.get('MY_APP_SECRET')
 MY_ACCESS_TOKEN = os.environ.get('MY_ACCESS_TOKEN')
-
 AD_ACCOUNT_ID_1 = os.environ.get('AD_ACCOUNT_ID_1')
 AD_ACCOUNT_ID_2 = os.environ.get('AD_ACCOUNT_ID_2')
-
 AD_ACCOUNT_NAME_1 = 'Bella Serra'
 AD_ACCOUNT_NAME_2 = 'Vista Bella'
 
 FacebookAdsApi.init(MY_APP_ID, MY_APP_SECRET, MY_ACCESS_TOKEN)
-
 app = Flask(__name__)
 
-# --- FUNÇÃO PRINCIPAL PARA BUSCAR DADOS ---
-def fetch_account_data(account_id, start_date, end_date):
+# --- FUNÇÃO DE BUSCA (usada pelas duas rotas) ---
+def fetch_insights(account_id, start_date, end_date):
     """
-    Busca dados diários e calcula a média de CPL para o período total.
+    Função base que faz a chamada à API da Meta para um período.
     """
     try:
-        # Retorna imediatamente se não houver um ID de conta válido
         if not account_id:
-            return {'error': 'ID da conta não configurado', 'daily_data': [], 'average_cpl': 0}
-            
+            return [] # Retorna lista vazia se a conta não estiver configurada
+
         account = AdAccount(account_id)
-        
         params = {
             'level': 'campaign',
             'time_range': {'since': start_date, 'until': end_date},
@@ -42,57 +37,13 @@ def fetch_account_data(account_id, start_date, end_date):
             'fields': ['campaign_name', 'spend', 'actions'],
             'action_breakdowns': ['action_type'],
         }
-
-        insights = account.get_insights(params=params)
-        
-        daily_data = {}
-        total_period_spend = 0.0
-        total_period_results = 0
-
-        for insight in insights:
-            campaign_name = insight.get('campaign_name', '').lower()
-            if 'vaga' in campaign_name or 'vagas' in campaign_name:
-                continue
-
-            date_str = insight['date_start']
-            spend = float(insight['spend'])
-            
-            results = 0
-            if 'actions' in insight:
-                for action in insight['actions']:
-                    if action['action_type'] == 'onsite_conversion.messaging_conversation_started_7d':
-                        results = int(action['value'])
-                        break
-            
-            if date_str not in daily_data:
-                daily_data[date_str] = {'spend': 0.0, 'results': 0}
-            
-            daily_data[date_str]['spend'] += spend
-            daily_data[date_str]['results'] += results
-        
-        formatted_data = []
-        for date, values in sorted(daily_data.items()):
-            cost_per_lead = (values['spend'] / values['results']) if values['results'] > 0 else 0
-            formatted_data.append({
-                'date': date, 'cpl': round(cost_per_lead, 2),
-                'total_spend': round(values['spend'], 2), 'total_results': values['results']
-            })
-            total_period_spend += values['spend']
-            total_period_results += values['results']
-
-        average_cpl = (total_period_spend / total_period_results) if total_period_results > 0 else 0
-        
-        return {
-            'daily_data': formatted_data,
-            'average_cpl': round(average_cpl, 2)
-        }
+        return account.get_insights(params=params)
 
     except FacebookRequestError as e:
-        print(f"Erro ao buscar dados para a conta {account_id}: {e}")
-        return {'error': str(e), 'daily_data': [], 'average_cpl': 0}
+        print(f"Erro na API da Meta para a conta {account_id}: {e}")
+        return [] # Retorna lista vazia em caso de erro
 
-# --- ROTAS DA APLICAÇÃO ---
-
+# --- ROTA PARA O GRÁFICO INTERATIVO (agora mais simples) ---
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -102,56 +53,117 @@ def get_data():
     end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     start_date_str = request.args.get('start_date', (datetime.now() - timedelta(days=29)).strftime('%Y-%m-%d'))
     
-    data1 = fetch_account_data(AD_ACCOUNT_ID_1, start_date_str, end_date_str)
-    data2 = fetch_account_data(AD_ACCOUNT_ID_2, start_date_str, end_date_str)
+    # Processa os dados para cada conta
+    def process_data(account_id):
+        insights = fetch_insights(account_id, start_date_str, end_date_str)
+        total_spend = 0
+        total_results = 0
+        daily_data = []
+
+        # ... (lógica de processamento de insights) ...
+        # (Esta parte poderia ser refatorada para uma função helper também, mas vamos manter assim por clareza)
+        processed_days = {}
+        for insight in insights:
+            campaign_name = insight.get('campaign_name', '').lower()
+            if 'vaga' in campaign_name or 'vagas' in campaign_name: continue
+            date_str = insight['date_start']
+            spend = float(insight['spend'])
+            results = 0
+            if 'actions' in insight:
+                for action in insight['actions']:
+                    if action['action_type'] == 'onsite_conversion.messaging_conversation_started_7d':
+                        results = int(action['value'])
+                        break
+            if date_str not in processed_days:
+                processed_days[date_str] = {'spend': 0.0, 'results': 0}
+            processed_days[date_str]['spend'] += spend
+            processed_days[date_str]['results'] += results
+        
+        for date, values in sorted(processed_days.items()):
+            total_spend += values['spend']
+            total_results += values['results']
+            cpl = (values['spend'] / values['results']) if values['results'] > 0 else 0
+            daily_data.append({'date': date, 'cpl': round(cpl, 2), 'total_spend': round(values['spend'], 2), 'total_results': values['results']})
+
+        avg_cpl = (total_spend / total_results) if total_results > 0 else 0
+        return {'daily_data': daily_data, 'average_cpl': round(avg_cpl, 2)}
+
+    data1 = process_data(AD_ACCOUNT_ID_1)
+    data2 = process_data(AD_ACCOUNT_ID_2)
     
     return jsonify({
         'account1': {'name': AD_ACCOUNT_NAME_1, 'stats': data1},
         'account2': {'name': AD_ACCOUNT_NAME_2, 'stats': data2}
     })
 
+# --- ROTA DE DADOS ANUAIS (TOTALMENTE REFEITA E OTIMIZADA) ---
 @app.route('/get_yearly_data')
 def get_yearly_data():
     current_year = datetime.now().year
-    
-    quarters = {
-        'q1': (f'{current_year}-01-01', f'{current_year}-03-31'),
-        'q2': (f'{current_year}-04-01', f'{current_year}-06-30'),
-        'q3': (f'{current_year}-07-01', f'{current_year}-09-30'),
-        'q4': (f'{current_year}-10-01', f'{current_year}-12-31'),
-    }
-    
-    # Usando o nome do mês em português para a chave do dicionário
-    months_pt = {
-        "Janeiro": 1, "Fevereiro": 2, "Março": 3, "Abril": 4, "Maio": 5, "Junho": 6,
-        "Julho": 7, "Agosto": 8, "Setembro": 9, "Outubro": 10, "Novembro": 11, "Dezembro": 12
-    }
+    start_of_year = f'{current_year}-01-01'
+    end_of_year = f'{current_year}-12-31'
     
     yearly_results = {
-        'account1': {'name': AD_ACCOUNT_NAME_1, 'quarterly_data': {}, 'monthly_averages': {}},
-        'account2': {'name': AD_ACCOUNT_NAME_2, 'quarterly_data': {}, 'monthly_averages': {}},
+        'account1': {'name': AD_ACCOUNT_NAME_1},
+        'account2': {'name': AD_ACCOUNT_NAME_2},
     }
 
+    # Processa os dados para cada conta UMA ÚNICA VEZ
     for acc_key, acc_id in [('account1', AD_ACCOUNT_ID_1), ('account2', AD_ACCOUNT_ID_2)]:
-        for q_key, (start, end) in quarters.items():
-            if datetime.strptime(start, '%Y-%m-%d') > datetime.now():
-                yearly_results[acc_key]['quarterly_data'][q_key] = {'daily_data': [], 'average_cpl': 'N/D'}
-            else:
-                yearly_results[acc_key]['quarterly_data'][q_key] = fetch_account_data(acc_id, start, end)
+        # 1. FAZ A CHAMADA ÚNICA PARA O ANO INTEIRO
+        all_insights = fetch_insights(acc_id, start_of_year, end_of_year)
+        
+        # 2. INICIALIZA ESTRUTURAS PARA GUARDAR OS DADOS PROCESSADOS
+        quarter_totals = {q: {'spend': 0, 'results': 0, 'daily_data': []} for q in ['q1', 'q2', 'q3', 'q4']}
+        month_totals = {m: {'spend': 0, 'results': 0} for m in range(1, 13)}
 
-        for month_name, month_num in months_pt.items():
-            start_day = f'{current_year}-{month_num:02d}-01'
-            last_day = calendar.monthrange(current_year, month_num)[1]
-            end_day = f'{current_year}-{month_num:02d}-{last_day}'
+        # 3. PROCESSA OS DADOS DO ANO INTEIRO DE UMA VEZ
+        for insight in all_insights:
+            campaign_name = insight.get('campaign_name', '').lower()
+            if 'vaga' in campaign_name or 'vagas' in campaign_name:
+                continue
             
-            if datetime.strptime(start_day, '%Y-%m-%d') > datetime.now():
-                yearly_results[acc_key]['monthly_averages'][month_name] = 'N/D'
-            else:
-                month_data = fetch_account_data(acc_id, start_day, end_day)
-                yearly_results[acc_key]['monthly_averages'][month_name] = month_data['average_cpl']
-
+            day_date = datetime.strptime(insight['date_start'], '%Y-%m-%d')
+            spend = float(insight['spend'])
+            results = 0
+            if 'actions' in insight:
+                for action in insight['actions']:
+                    if action['action_type'] == 'onsite_conversion.messaging_conversation_started_7d':
+                        results = int(action['value']); break
+            
+            # Reparte os dados por mês
+            month_totals[day_date.month]['spend'] += spend
+            month_totals[day_date.month]['results'] += results
+            
+            # Reparte os dados por trimestre
+            quarter = f'q{(day_date.month - 1) // 3 + 1}'
+            quarter_totals[quarter]['spend'] += spend
+            quarter_totals[quarter]['results'] += results
+            cpl = (spend / results) if results > 0 else 0
+            quarter_totals[quarter]['daily_data'].append({
+                'date': insight['date_start'], 'cpl': round(cpl, 2), 
+                'total_spend': round(spend, 2), 'total_results': results
+            })
+            
+        # 4. CALCULA AS MÉDIAS FINAIS
+        final_quarterly_data = {}
+        for q, totals in quarter_totals.items():
+            avg_cpl = (totals['spend'] / totals['results']) if totals['results'] > 0 else 'N/D'
+            if isinstance(avg_cpl, float): avg_cpl = round(avg_cpl, 2)
+            final_quarterly_data[q] = {'daily_data': totals['daily_data'], 'average_cpl': avg_cpl}
+            
+        final_monthly_averages = {}
+        months_pt = {i: calendar.month_name[i] for i in range(1, 13)}
+        for m, totals in month_totals.items():
+            month_name_pt = months_pt[m]
+            avg_cpl = (totals['spend'] / totals['results']) if totals['results'] > 0 else 'N/D'
+            if isinstance(avg_cpl, float): avg_cpl = round(avg_cpl, 2)
+            final_monthly_averages[month_name_pt] = avg_cpl
+            
+        yearly_results[acc_key]['quarterly_data'] = final_quarterly_data
+        yearly_results[acc_key]['monthly_averages'] = final_monthly_averages
+        
     return jsonify(yearly_results)
-
 
 # --- INICIA O SERVIDOR ---
 if __name__ == '__main__':
