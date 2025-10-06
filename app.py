@@ -21,9 +21,7 @@ FacebookAdsApi.init(MY_APP_ID, MY_APP_SECRET, MY_ACCESS_TOKEN)
 app = Flask(__name__)
 
 # --- FUNÇÕES HELPER ---
-
 def fetch_insights(account_id, start_date, end_date, increment='1'):
-    """Função base que faz a chamada à API da Meta para um período."""
     try:
         if not account_id: return []
         account = AdAccount(account_id)
@@ -40,7 +38,6 @@ def fetch_insights(account_id, start_date, end_date, increment='1'):
         return []
 
 def process_daily_data(insights):
-    """Processa uma lista de insights diários e calcula as métricas."""
     processed_days = {}
     for insight in insights:
         campaign_name = insight.get('campaign_name', '').lower()
@@ -78,7 +75,6 @@ def index():
 
 @app.route('/get_data')
 def get_data():
-    """Rota para o gráfico principal interativo."""
     end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
     start_date_str = request.args.get('start_date', (datetime.now() - timedelta(days=29)).strftime('%Y-%m-%d'))
     
@@ -95,7 +91,6 @@ def get_data():
 
 @app.route('/get_yearly_data')
 def get_yearly_data():
-    """Rota para a análise anual estática (otimizada)."""
     current_year = datetime.now().year
     start_of_year = f'{current_year}-01-01'
     end_of_year = f'{current_year}-12-31'
@@ -106,44 +101,50 @@ def get_yearly_data():
     }
 
     for acc_key, acc_id in [('account1', AD_ACCOUNT_ID_1), ('account2', AD_ACCOUNT_ID_2)]:
+        # Faz uma única chamada para o ano todo, agrupando por mês
         monthly_insights = fetch_insights(acc_id, start_of_year, end_of_year, increment='monthly')
         
-        monthly_cpls = {m: 'N/D' for m in range(1, 13)}
+        monthly_totals = {m: {'spend': 0, 'results': 0} for m in range(1, 13)}
         
         for insight in monthly_insights:
+            # Filtra campanhas
             campaign_name = insight.get('campaign_name', '').lower()
             if 'vaga' in campaign_name or 'vagas' in campaign_name: continue
             
+            # Agrega os totais do mês
             month_num = datetime.strptime(insight['date_start'], '%Y-%m-%d').month
-            spend = float(insight['spend'])
-            results = 0
+            monthly_totals[month_num]['spend'] += float(insight['spend'])
             if 'actions' in insight:
                 for action in insight['actions']:
                     if action['action_type'] == 'onsite_conversion.messaging_conversation_started_7d':
-                        results = int(action['value']); break
-            
-            cpl = (spend / results) if results > 0 else 0
-            monthly_cpls[month_num] = round(cpl, 2)
+                        monthly_totals[month_num]['results'] += int(action['value']); break
 
-        final_quarterly_data = {}
-        for q in range(1, 5):
-            start_month = (q - 1) * 3 + 1
-            q_months = range(start_month, start_month + 3)
-            q_cpls = [monthly_cpls[m] for m in q_months]
+        # Calcula as médias mensais e trimestrais a partir dos totais agregados
+        monthly_averages = []
+        for m in range(1, 13):
+            totals = monthly_totals[m]
+            if totals['results'] > 0:
+                avg = round(totals['spend'] / totals['results'], 2)
+                monthly_averages.append(avg)
+            else:
+                monthly_averages.append(None) # Usamos None para meses sem dados
+        
+        quarterly_averages = []
+        for q in range(4):
+            start_month_idx = q * 3
+            q_months_indices = range(start_month_idx, start_month_idx + 3)
             
-            valid_cpls = [c for c in q_cpls if isinstance(c, (int, float))]
-            avg_cpl = sum(valid_cpls) / len(valid_cpls) if valid_cpls else 'N/D'
-            if isinstance(avg_cpl, float): avg_cpl = round(avg_cpl, 2)
-            
-            final_quarterly_data[f'q{q}'] = {
-                'monthly_cpls': q_cpls, 
-                'average_cpl': avg_cpl
-            }
-            
-        final_monthly_averages = {calendar.month_name[i].capitalize(): monthly_cpls[i] for i in range(1, 13)}
+            q_spend = sum(monthly_totals[m+1]['spend'] for m in q_months_indices)
+            q_results = sum(monthly_totals[m+1]['results'] for m in q_months_indices)
 
-        yearly_results[acc_key]['quarterly_data'] = final_quarterly_data
-        yearly_results[acc_key]['monthly_averages'] = final_monthly_averages
+            if q_results > 0:
+                avg = round(q_spend / q_results, 2)
+                quarterly_averages.append(avg)
+            else:
+                quarterly_averages.append(None) # Usamos None para trimestres sem dados
+
+        yearly_results[acc_key]['monthly_averages'] = monthly_averages
+        yearly_results[acc_key]['quarterly_averages'] = quarterly_averages
         
     return jsonify(yearly_results)
 
