@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Custo Por Lead</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #f4f7f6; --card-color: #ffffff; --font-color: #1a1a2e;
+            --font-color-light: #6c757d; --accent-blue: #007bff; --accent-green: #28a745;
+            --shadow-color: rgba(0, 0, 0, 0.1); --border-color: #dee2e6;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Roboto', sans-serif; background-color: var(--bg-color);
+            color: var(--font-color); padding: 20px;
+        }
+        .container {
+            width: 100%; max-width: 1200px; background-color: var(--card-color);
+            border-radius: 15px; box-shadow: 0 4px 12px var(--shadow-color);
+            padding: 30px; border: 1px solid var(--border-color); margin: 0 auto;
+        }
+        header { text-align: center; margin-bottom: 20px; }
+        header h1 { font-weight: 700; font-size: 2.5rem; }
+        .filters {
+            display: flex; flex-wrap: wrap; gap: 20px; justify-content: center;
+            align-items: center; margin-bottom: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 30px;
+        }
+        .filter-group { display: flex; flex-direction: column; }
+        .filter-group label { margin-bottom: 8px; font-size: 0.9rem; font-weight: 400; color: var(--font-color-light); }
+        .filter-group input {
+            background-color: #fff; border: 1px solid var(--border-color); color: var(--font-color);
+            padding: 12px 15px; border-radius: 8px; font-size: 1rem;
+        }
+        .update-button {
+            cursor: pointer; background: linear-gradient(45deg, var(--accent-blue), var(--accent-green));
+            color: #fff; border: none; font-weight: 700; align-self: flex-end; padding: 12px 15px;
+            border-radius: 8px; font-size: 1rem;
+        }
+        .summary-cards { display: flex; justify-content: center; gap: 30px; margin-bottom: 40px; flex-wrap: wrap; }
+        .cpl-card {
+            background-color: var(--card-color); padding: 20px 30px; border-radius: 10px;
+            text-align: center; border-left: 5px solid; min-width: 250px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .cpl-card h3 { font-size: 1rem; font-weight: 400; color: var(--font-color-light); margin-bottom: 10px; }
+        .cpl-card .cpl-value { font-size: 2.2rem; font-weight: 700; }
+        .cpl-card.bella-serra { border-color: var(--accent-blue); }
+        .cpl-card.vista-bella { border-color: var(--accent-green); }
+        .chart-container { position: relative; height: 50vh; width: 100%; margin-bottom: 40px; }
+        .loader {
+            border: 8px solid #f3f3f3; border-radius: 50%; border-top: 8px solid var(--accent-blue);
+            width: 60px; height: 60px; animation: spin 1s linear infinite; position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%); display: none;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #print-period-display { display: none; }
+
+        /* --- NOVOS ESTILOS --- */
+        .section-title {
+            text-align: center; font-size: 1.8rem; font-weight: 700;
+            margin-top: 40px; margin-bottom: 30px; padding-top: 30px; border-top: 1px solid var(--border-color);
+        }
+        .yearly-stats { display: flex; flex-wrap: wrap; gap: 30px; justify-content: space-between; }
+        .quarterly-charts-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px; width: 100%;
+        }
+        .chart-card {
+            background: #fff; padding: 20px; border-radius: 10px;
+            border: 1px solid var(--border-color); box-shadow: 0 2px 6px var(--shadow-color);
+        }
+        .chart-card h4 { text-align: center; margin-bottom: 5px; font-size: 1.2rem; }
+        .chart-card .avg-cpl-display { text-align: center; margin-bottom: 15px; font-size: 0.9rem; color: var(--font-color-light); }
+        .chart-card .avg-cpl-display span { font-weight: 700; color: var(--font-color); }
+        .quarter-chart-container { height: 25vh; }
+
+        .monthly-list { width: 100%; margin-top: 30px; }
+        .monthly-table { width: 100%; border-collapse: collapse; }
+        .monthly-table th, .monthly-table td {
+            padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color);
+        }
+        .monthly-table th { background-color: #f8f9fa; }
+        .monthly-table td:not(:first-child) { text-align: right; }
+        /* --- FIM DOS NOVOS ESTILOS --- */
+
+        @media print { /* ... (sem alterações aqui) */ }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header><h1>Relatório de Custo Por Lead (CPL)</h1></header>
+        <main>
+            <p id="print-period-display"></p>
+            <section class="filters">
+                </section>
+            <section class="summary-cards">
+                </section>
+            <section class="chart-container">
+                <div class="loader" id="loader"></div>
+                <canvas id="cplChart"></canvas>
+            </section>
+
+            <section class="yearly-stats">
+                <h2 class="section-title">Análise Anual Estática</h2>
+
+                <div class="quarterly-charts-grid">
+                    <div class="chart-card">
+                        <h4>1º Trimestre</h4>
+                        <p class="avg-cpl-display">
+                            Média Bella Serra: <span id="q1-avg-cpl-1">...</span> | 
+                            Média Vista Bella: <span id="q1-avg-cpl-2">...</span>
+                        </p>
+                        <div class="quarter-chart-container" id="q1-container"><canvas id="q1Chart"></canvas></div>
+                    </div>
+                    <div class="chart-card">
+                        <h4>2º Trimestre</h4>
+                        <p class="avg-cpl-display">
+                            Média Bella Serra: <span id="q2-avg-cpl-1">...</span> | 
+                            Média Vista Bella: <span id="q2-avg-cpl-2">...</span>
+                        </p>
+                        <div class="quarter-chart-container" id="q2-container"><canvas id="q2Chart"></canvas></div>
+                    </div>
+                    <div class="chart-card">
+                        <h4>3º Trimestre</h4>
+                        <p class="avg-cpl-display">
+                           Média Bella Serra: <span id="q3-avg-cpl-1">...</span> | 
+                           Média Vista Bella: <span id="q3-avg-cpl-2">...</span>
+                        </p>
+                        <div class="quarter-chart-container" id="q3-container"><canvas id="q3Chart"></canvas></div>
+                    </div>
+                    <div class="chart-card">
+                        <h4>4º Trimestre</h4>
+                        <p class="avg-cpl-display">
+                            Média Bella Serra: <span id="q4-avg-cpl-1">...</span> | 
+                            Média Vista Bella: <span id="q4-avg-cpl-2">...</span>
+                        </p>
+                        <div class="quarter-chart-container" id="q4-container"><canvas id="q4Chart"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="monthly-list">
+                    <h2 class="section-title" style="margin-top: 60px;">Médias Mensais</h2>
+                    <table class="monthly-table">
+                        <thead>
+                            <tr>
+                                <th>Mês</th>
+                                <th style="text-align: right;">CPL Bella Serra</th>
+                                <th style="text-align: right;">CPL Vista Bella</th>
+                            </tr>
+                        </thead>
+                        <tbody id="monthly-cpl-tbody">
+                            </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // --- SEÇÃO JAVASCRIPT ---
+        // (Referências a elementos e funções do gráfico principal sem alterações)
+
+        // --- NOVO CÓDIGO PARA DADOS ANUAIS ---
+        
+        // Função reutilizável para renderizar os gráficos trimestrais
+        function renderQuarterlyChart(canvasId, containerId, quarterData, accountNames) {
+            const container = document.getElementById(containerId);
+            const ctx = document.getElementById(canvasId).getContext('2d');
+
+            if (!quarterData.account1.daily_data || quarterData.account1.daily_data.length === 0) {
+                container.innerHTML = '<p style="text-align:center; padding-top: 40px; color: var(--font-color-light);">Não há dados para este período ainda.</p>';
+                return;
+            }
+
+            const allDates = new Set();
+            quarterData.account1.daily_data.forEach(d => allDates.add(d.date));
+            quarterData.account2.daily_data.forEach(d => allDates.add(d.date));
+            const labels = Array.from(allDates).sort();
+
+            const createDataset = (dailyData) => {
+                const dataMap = new Map(dailyData.map(d => [d.date, d]));
+                return labels.map(date => dataMap.get(date)?.cpl ?? null);
+            };
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels.map(d => new Date(d).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})),
+                    datasets: [
+                        { label: accountNames.acc1, data: createDataset(quarterData.account1.daily_data), borderColor: 'rgba(0, 123, 255, 1)', backgroundColor: 'rgba(0, 123, 255, 0.1)', borderWidth: 2, tension: 0.4, fill: true, pointRadius: 1 },
+                        { label: accountNames.acc2, data: createDataset(quarterData.account2.daily_data), borderColor: 'rgba(40, 167, 69, 1)', backgroundColor: 'rgba(40, 167, 69, 0.1)', borderWidth: 2, tension: 0.4, fill: true, pointRadius: 1 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, ticks: {font: {size: 10}} }, x: { ticks: {font: {size: 10}} } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Função para preencher a tabela mensal
+        function populateMonthlyTable(tbodyId, monthlyData) {
+            const tbody = document.getElementById(tbodyId);
+            tbody.innerHTML = ''; // Limpa a tabela
+            
+            const monthOrder = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            const monthTranslate = { "January": "Janeiro", "February": "Fevereiro", "March": "Março", "April": "Abril", "May": "Maio", "June": "Junho", "July": "Julho", "August": "Agosto", "September": "Setembro", "October": "Outubro", "November": "Novembro", "December": "Dezembro" };
+
+
+            for(const month of monthOrder) {
+                const cpl1 = monthlyData.account1[month];
+                const cpl2 = monthlyData.account2[month];
+                const row = `
+                    <tr>
+                        <td>${monthTranslate[month]}</td>
+                        <td>${typeof cpl1 === 'number' ? `R$ ${cpl1.toFixed(2)}` : cpl1}</td>
+                        <td>${typeof cpl2 === 'number' ? `R$ ${cpl2.toFixed(2)}` : cpl2}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            }
+        }
+
+        // Função principal para buscar e renderizar os dados anuais
+        async function fetchAndRenderYearlyStats() {
+            try {
+                const response = await fetch('/get_yearly_data');
+                const data = await response.json();
+
+                const accountNames = { acc1: data.account1.name, acc2: data.account2.name };
+                
+                // Trimestre 1
+                document.getElementById('q1-avg-cpl-1').textContent = `R$ ${data.account1.quarterly_data.q1.average_cpl}`;
+                document.getElementById('q1-avg-cpl-2').textContent = `R$ ${data.account2.quarterly_data.q1.average_cpl}`;
+                renderQuarterlyChart('q1Chart', 'q1-container', { account1: data.account1.quarterly_data.q1, account2: data.account2.quarterly_data.q1 }, accountNames);
+
+                // Trimestre 2
+                document.getElementById('q2-avg-cpl-1').textContent = `R$ ${data.account1.quarterly_data.q2.average_cpl}`;
+                document.getElementById('q2-avg-cpl-2').textContent = `R$ ${data.account2.quarterly_data.q2.average_cpl}`;
+                renderQuarterlyChart('q2Chart', 'q2-container', { account1: data.account1.quarterly_data.q2, account2: data.account2.quarterly_data.q2 }, accountNames);
+                
+                // Trimestre 3
+                document.getElementById('q3-avg-cpl-1').textContent = `R$ ${data.account1.quarterly_data.q3.average_cpl}`;
+                document.getElementById('q3-avg-cpl-2').textContent = `R$ ${data.account2.quarterly_data.q3.average_cpl}`;
+                renderQuarterlyChart('q3Chart', 'q3-container', { account1: data.account1.quarterly_data.q3, account2: data.account2.quarterly_data.q3 }, accountNames);
+                
+                // Trimestre 4
+                document.getElementById('q4-avg-cpl-1').textContent = `R$ ${data.account1.quarterly_data.q4.average_cpl}`;
+                document.getElementById('q4-avg-cpl-2').textContent = `R$ ${data.account2.quarterly_data.q4.average_cpl}`;
+                renderQuarterlyChart('q4Chart', 'q4-container', { account1: data.account1.quarterly_data.q4, account2: data.account2.quarterly_data.q4 }, accountNames);
+
+                // Tabela Mensal
+                populateMonthlyTable('monthly-cpl-tbody', { account1: data.account1.monthly_averages, account2: data.account2.monthly_averages });
+
+            } catch (error) {
+                console.error("Erro ao buscar dados anuais:", error);
+            }
+        }
+        
+        // --- INICIALIZAÇÃO ---
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAndUpdateChart(); // Carrega o gráfico interativo principal
+            fetchAndRenderYearlyStats(); // Carrega os gráficos e a lista anual estática
+        });
+        
+    </script>
+</body>
+</html>
