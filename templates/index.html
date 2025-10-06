@@ -62,7 +62,7 @@
             margin-top: 40px; margin-bottom: 30px; padding-top: 30px; border-top: 1px solid var(--border-color);
         }
         .yearly-stats-controls { text-align: center; margin-bottom: 30px; }
-        .yearly-stats { display: none; flex-wrap: wrap; gap: 30px; justify-content: space-between; } /* Começa escondido */
+        .yearly-stats { display: none; flex-wrap: wrap; gap: 30px; justify-content: space-between; }
         .quarterly-charts-grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
             gap: 30px; width: 100%;
@@ -87,7 +87,7 @@
             .filters, .load-yearly-button, .yearly-stats-controls .section-title { display: none !important; }
             #print-period-display { display: block !important; text-align: center; margin-bottom: 20px; font-size: 1.1rem; color: #333; }
             .container { box-shadow: none !important; border: none !important; width: 100% !important; max-width: 100% !important; }
-            .yearly-stats { display: flex !important; } /* Garante que a seção anual apareça na impressão */
+            .yearly-stats { display: flex !important; }
         }
     </style>
 </head>
@@ -124,7 +124,7 @@
             <div class="yearly-stats-controls">
                 <h2 class="section-title">Análise Anual Estática</h2>
                 <button id="load-yearly-btn" class="load-yearly-button">Carregar Análise Anual</button>
-                <p id="yearly-loader" style="display:none; margin-top:15px;">Buscando dados anuais, isso pode levar um minuto...</p>
+                <p id="yearly-loader" style="display:none; margin-top:15px;">Buscando dados anuais...</p>
             </div>
             <section id="yearly-stats-section" class="yearly-stats">
                 <div class="quarterly-charts-grid">
@@ -224,34 +224,54 @@
             });
         }
 
+        // --- FUNÇÃO DO GRÁFICO TRIMESTRAL (MODIFICADA PARA DADOS MENSAIS) ---
         function renderQuarterlyChart(canvasId, containerId, quarterData, accountNames) {
             const container = document.getElementById(containerId);
-            container.innerHTML = `<canvas id="${canvasId}"></canvas>`; // Recria o canvas para evitar bugs
+            container.innerHTML = `<canvas id="${canvasId}"></canvas>`;
             const ctx = document.getElementById(canvasId).getContext('2d');
-            if (!quarterData.account1.daily_data || quarterData.account1.daily_data.length === 0) {
+
+            const hasData = quarterData.account1.monthly_cpls.some(c => c !== 'N/D');
+            if (!hasData) {
                 container.innerHTML = '<p style="text-align:center; padding-top: 40px; color: var(--font-color-light);">Não há dados para este período ainda.</p>';
                 return;
             }
-            const allDates = new Set();
-            quarterData.account1.daily_data.forEach(d => allDates.add(d.date));
-            quarterData.account2.daily_data.forEach(d => allDates.add(d.date));
-            const labels = Array.from(allDates).sort();
-            const createDataset = (dailyData) => {
-                const dataMap = new Map(dailyData.map(d => [d.date, d]));
-                return labels.map(date => dataMap.get(date)?.cpl ?? null);
-            };
+            
+            const quarterNum = parseInt(canvasId.charAt(1));
+            const monthNames = [
+                ["Jan", "Fev", "Mar"],
+                ["Abr", "Mai", "Jun"],
+                ["Jul", "Ago", "Set"],
+                ["Out", "Nov", "Dez"]
+            ];
+            const labels = monthNames[quarterNum - 1];
+
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels.map(d => new Date(d).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', timeZone: 'UTC'})),
+                    labels: labels,
                     datasets: [
-                        { label: accountNames.acc1, data: createDataset(quarterData.account1.daily_data), borderColor: 'rgba(0, 123, 255, 1)', backgroundColor: 'rgba(0, 123, 255, 0.1)', borderWidth: 2, tension: 0.4, fill: true, pointRadius: 1 },
-                        { label: accountNames.acc2, data: createDataset(quarterData.account2.daily_data), borderColor: 'rgba(40, 167, 69, 1)', backgroundColor: 'rgba(40, 167, 69, 0.1)', borderWidth: 2, tension: 0.4, fill: true, pointRadius: 1 }
+                        { 
+                            label: accountNames.acc1, 
+                            data: quarterData.account1.monthly_cpls.map(c => c === 'N/D' ? null : c), 
+                            borderColor: 'rgba(0, 123, 255, 1)', 
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)', 
+                            borderWidth: 2, tension: 0.4, fill: true, pointRadius: 3 
+                        },
+                        { 
+                            label: accountNames.acc2, 
+                            data: quarterData.account2.monthly_cpls.map(c => c === 'N/D' ? null : c), 
+                            borderColor: 'rgba(40, 167, 69, 1)', 
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)', 
+                            borderWidth: 2, tension: 0.4, fill: true, pointRadius: 3 
+                        }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    scales: { y: { beginAtZero: true, ticks: {font: {size: 10}} }, x: { ticks: {font: {size: 10}} } },
+                    scales: { 
+                        y: { beginAtZero: true, ticks: {font: {size: 10}, callback: value => 'R$ ' + value} }, 
+                        x: { ticks: {font: {size: 10}} } 
+                    },
                     plugins: { legend: { display: false } }
                 }
             });
@@ -320,19 +340,16 @@
                 if (!response.ok) throw new Error('Falha ao buscar dados anuais');
                 const data = await response.json();
                 const accountNames = { acc1: data.account1.name, acc2: data.account2.name };
-
                 const quarters = ['q1', 'q2', 'q3', 'q4'];
                 quarters.forEach(q => {
                     const avg_cpl1_el = document.getElementById(`${q}-avg-cpl-1`);
                     const avg_cpl2_el = document.getElementById(`${q}-avg-cpl-2`);
                     const q_data_acc1 = data.account1.quarterly_data[q];
                     const q_data_acc2 = data.account2.quarterly_data[q];
-                    
                     avg_cpl1_el.textContent = typeof q_data_acc1.average_cpl === 'number' ? `R$ ${q_data_acc1.average_cpl.toFixed(2)}` : 'N/D';
                     avg_cpl2_el.textContent = typeof q_data_acc2.average_cpl === 'number' ? `R$ ${q_data_acc2.average_cpl.toFixed(2)}` : 'N/D';
                     renderQuarterlyChart(`${q}Chart`, `${q}-container`, { account1: q_data_acc1, account2: q_data_acc2 }, accountNames);
                 });
-
                 populateMonthlyTable('monthly-cpl-tbody', { account1: data.account1.monthly_averages, account2: data.account2.monthly_averages });
                 yearlyStatsSection.style.display = 'flex';
             } catch (error) {
@@ -353,10 +370,8 @@
         const thirtyDaysAgo = new Date(new Date().setDate(today.getDate() - 29));
         endDateInput.value = today.toISOString().split('T')[0];
         startDateInput.value = thirtyDaysAgo.toISOString().split('T')[0];
-
         updateButton.addEventListener('click', fetchAndUpdateChart);
         loadYearlyBtn.addEventListener('click', fetchAndRenderYearlyStats);
-
         document.addEventListener('DOMContentLoaded', () => {
             fetchAndUpdateChart();
         });
