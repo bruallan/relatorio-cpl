@@ -17,6 +17,14 @@ AD_ACCOUNT_ID_2 = os.environ.get('AD_ACCOUNT_ID_2')
 AD_ACCOUNT_NAME_1 = 'Bella Serra'
 AD_ACCOUNT_NAME_2 = 'Vista Bella'
 
+# NOVO: Definimos todos os tipos de ação que consideramos um "Lead"
+LEAD_ACTION_TYPES = [
+    'lead',               # Evento padrão de lead (formulários, etc)
+    'on_facebook_lead',   # Leads gerados diretamente no Facebook/Instagram
+    'onsite_conversion.lead', # Outra variação comum para leads no site
+    'onsite_conversion.messaging_conversation_started_7d' # O de mensagens que já usávamos
+]
+
 FacebookAdsApi.init(MY_APP_ID, MY_APP_SECRET, MY_ACCESS_TOKEN)
 app = Flask(__name__)
 
@@ -45,11 +53,14 @@ def process_daily_data(insights):
         
         date_str = insight['date_start']
         spend = float(insight['spend'])
+        
+        # LÓGICA CORRIGIDA: Soma todos os tipos de lead da nossa lista
         results = 0
         if 'actions' in insight:
             for action in insight['actions']:
-                if action['action_type'] == 'onsite_conversion.messaging_conversation_started_7d':
-                    results = int(action['value']); break
+                if action['action_type'] in LEAD_ACTION_TYPES:
+                    results += int(action['value']) # Usamos '+=' para somar
+
         if date_str not in processed_days:
             processed_days[date_str] = {'spend': 0.0, 'results': 0}
         processed_days[date_str]['spend'] += spend
@@ -68,7 +79,6 @@ def process_daily_data(insights):
     return {'daily_data': daily_data, 'average_cpl': round(avg_cpl, 2)}
 
 # --- ROTAS DA APLICAÇÃO ---
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -101,25 +111,23 @@ def get_yearly_data():
     }
 
     for acc_key, acc_id in [('account1', AD_ACCOUNT_ID_1), ('account2', AD_ACCOUNT_ID_2)]:
-        # Faz uma única chamada para o ano todo, agrupando por mês
         monthly_insights = fetch_insights(acc_id, start_of_year, end_of_year, increment='monthly')
         
         monthly_totals = {m: {'spend': 0, 'results': 0} for m in range(1, 13)}
         
         for insight in monthly_insights:
-            # Filtra campanhas
             campaign_name = insight.get('campaign_name', '').lower()
             if 'vaga' in campaign_name or 'vagas' in campaign_name: continue
             
-            # Agrega os totais do mês
             month_num = datetime.strptime(insight['date_start'], '%Y-%m-%d').month
             monthly_totals[month_num]['spend'] += float(insight['spend'])
+            
+            # LÓGICA CORRIGIDA: Soma todos os tipos de lead da nossa lista
             if 'actions' in insight:
                 for action in insight['actions']:
-                    if action['action_type'] == 'onsite_conversion.messaging_conversation_started_7d':
-                        monthly_totals[month_num]['results'] += int(action['value']); break
+                    if action['action_type'] in LEAD_ACTION_TYPES:
+                        monthly_totals[month_num]['results'] += int(action['value'])
 
-        # Calcula as médias mensais e trimestrais a partir dos totais agregados
         monthly_averages = []
         for m in range(1, 13):
             totals = monthly_totals[m]
@@ -127,21 +135,19 @@ def get_yearly_data():
                 avg = round(totals['spend'] / totals['results'], 2)
                 monthly_averages.append(avg)
             else:
-                monthly_averages.append(None) # Usamos None para meses sem dados
+                monthly_averages.append(None)
         
         quarterly_averages = []
         for q in range(4):
             start_month_idx = q * 3
             q_months_indices = range(start_month_idx, start_month_idx + 3)
-            
             q_spend = sum(monthly_totals[m+1]['spend'] for m in q_months_indices)
             q_results = sum(monthly_totals[m+1]['results'] for m in q_months_indices)
-
             if q_results > 0:
                 avg = round(q_spend / q_results, 2)
                 quarterly_averages.append(avg)
             else:
-                quarterly_averages.append(None) # Usamos None para trimestres sem dados
+                quarterly_averages.append(None)
 
         yearly_results[acc_key]['monthly_averages'] = monthly_averages
         yearly_results[acc_key]['quarterly_averages'] = quarterly_averages
