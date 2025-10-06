@@ -8,17 +8,14 @@ from facebook_business.adobjects.adaccount import AdAccount
 from facebook_business.exceptions import FacebookRequestError
 from datetime import datetime, timedelta
 
-
-# Substitua com suas informações reais. Mantenha isso seguro!
+# --- CONFIGURAÇÃO ---
 MY_APP_ID = os.environ.get('MY_APP_ID')
 MY_APP_SECRET = os.environ.get('MY_APP_SECRET')
 MY_ACCESS_TOKEN = os.environ.get('MY_ACCESS_TOKEN')
 
-# IDs das suas duas contas de anúncio
 AD_ACCOUNT_ID_1 = os.environ.get('AD_ACCOUNT_ID_1')
 AD_ACCOUNT_ID_2 = os.environ.get('AD_ACCOUNT_ID_2')
 
-# Nomes para exibição no gráfico
 AD_ACCOUNT_NAME_1 = 'Bella Serra'
 AD_ACCOUNT_NAME_2 = 'Vista Bella'
 
@@ -26,12 +23,16 @@ FacebookAdsApi.init(MY_APP_ID, MY_APP_SECRET, MY_ACCESS_TOKEN)
 
 app = Flask(__name__)
 
-# --- FUNÇÃO PRINCIPAL PARA BUSCAR DADOS (MODIFICADA) ---
+# --- FUNÇÃO PRINCIPAL PARA BUSCAR DADOS ---
 def fetch_account_data(account_id, start_date, end_date):
     """
     Busca dados diários e calcula a média de CPL para o período total.
     """
     try:
+        # Retorna imediatamente se não houver um ID de conta válido
+        if not account_id:
+            return {'error': 'ID da conta não configurado', 'daily_data': [], 'average_cpl': 0}
+            
         account = AdAccount(account_id)
         
         params = {
@@ -50,7 +51,6 @@ def fetch_account_data(account_id, start_date, end_date):
 
         for insight in insights:
             campaign_name = insight.get('campaign_name', '').lower()
-            
             if 'vaga' in campaign_name or 'vagas' in campaign_name:
                 continue
 
@@ -70,24 +70,18 @@ def fetch_account_data(account_id, start_date, end_date):
             daily_data[date_str]['spend'] += spend
             daily_data[date_str]['results'] += results
         
-        # Formata os dados diários e calcula os totais do período
         formatted_data = []
         for date, values in sorted(daily_data.items()):
             cost_per_lead = (values['spend'] / values['results']) if values['results'] > 0 else 0
             formatted_data.append({
-                'date': date,
-                'cpl': round(cost_per_lead, 2),
-                'total_spend': round(values['spend'], 2),
-                'total_results': values['results']
+                'date': date, 'cpl': round(cost_per_lead, 2),
+                'total_spend': round(values['spend'], 2), 'total_results': values['results']
             })
-            # Soma aos totais do período
             total_period_spend += values['spend']
             total_period_results += values['results']
 
-        # **NOVO: Calcula o CPL médio do período**
         average_cpl = (total_period_spend / total_period_results) if total_period_results > 0 else 0
         
-        # **NOVO: Retorna um dicionário com os dados diários E a média**
         return {
             'daily_data': formatted_data,
             'average_cpl': round(average_cpl, 2)
@@ -95,7 +89,7 @@ def fetch_account_data(account_id, start_date, end_date):
 
     except FacebookRequestError as e:
         print(f"Erro ao buscar dados para a conta {account_id}: {e}")
-        return {'error': str(e)}
+        return {'error': str(e), 'daily_data': [], 'average_cpl': 0}
 
 # --- ROTAS DA APLICAÇÃO ---
 
@@ -106,29 +100,20 @@ def index():
 @app.route('/get_data')
 def get_data():
     end_date_str = request.args.get('end_date', datetime.now().strftime('%Y-%m-%d'))
-    start_date_str = request.args.get(
-        'start_date', 
-        (datetime.now() - timedelta(days=29)).strftime('%Y-%m-%d')
-    )
+    start_date_str = request.args.get('start_date', (datetime.now() - timedelta(days=29)).strftime('%Y-%m-%d'))
     
     data1 = fetch_account_data(AD_ACCOUNT_ID_1, start_date_str, end_date_str)
     data2 = fetch_account_data(AD_ACCOUNT_ID_2, start_date_str, end_date_str)
     
-    # A resposta JSON agora conterá a estrutura retornada pela função
     return jsonify({
         'account1': {'name': AD_ACCOUNT_NAME_1, 'stats': data1},
         'account2': {'name': AD_ACCOUNT_NAME_2, 'stats': data2}
     })
 
-# --- NOVA ROTA PARA BUSCAR OS DADOS ANUAIS ---
 @app.route('/get_yearly_data')
 def get_yearly_data():
-    """
-    Busca todos os dados do ano corrente, já separados por trimestre e mês.
-    """
     current_year = datetime.now().year
     
-    # Define os períodos
     quarters = {
         'q1': (f'{current_year}-01-01', f'{current_year}-03-31'),
         'q2': (f'{current_year}-04-01', f'{current_year}-06-30'),
@@ -136,36 +121,37 @@ def get_yearly_data():
         'q4': (f'{current_year}-10-01', f'{current_year}-12-31'),
     }
     
-    months = {
-        i: (f'{current_year}-{i:02d}-01', f'{current_year}-{i:02d}-{calendar.monthrange(current_year, i)[1]}')
-        for i in range(1, 13)
+    # Usando o nome do mês em português para a chave do dicionário
+    months_pt = {
+        "Janeiro": 1, "Fevereiro": 2, "Março": 3, "Abril": 4, "Maio": 5, "Junho": 6,
+        "Julho": 7, "Agosto": 8, "Setembro": 9, "Outubro": 10, "Novembro": 11, "Dezembro": 12
     }
-
-    # Estrutura para guardar os resultados
+    
     yearly_results = {
         'account1': {'name': AD_ACCOUNT_NAME_1, 'quarterly_data': {}, 'monthly_averages': {}},
         'account2': {'name': AD_ACCOUNT_NAME_2, 'quarterly_data': {}, 'monthly_averages': {}},
     }
 
-    # Busca os dados para cada conta
     for acc_key, acc_id in [('account1', AD_ACCOUNT_ID_1), ('account2', AD_ACCOUNT_ID_2)]:
-        # Busca dados trimestrais
         for q_key, (start, end) in quarters.items():
             if datetime.strptime(start, '%Y-%m-%d') > datetime.now():
                 yearly_results[acc_key]['quarterly_data'][q_key] = {'daily_data': [], 'average_cpl': 'N/D'}
             else:
                 yearly_results[acc_key]['quarterly_data'][q_key] = fetch_account_data(acc_id, start, end)
 
-        # Busca dados mensais
-        for m_key, (start, end) in months.items():
-            month_name = calendar.month_name[m_key]
-            if datetime.strptime(start, '%Y-%m-%d') > datetime.now():
+        for month_name, month_num in months_pt.items():
+            start_day = f'{current_year}-{month_num:02d}-01'
+            last_day = calendar.monthrange(current_year, month_num)[1]
+            end_day = f'{current_year}-{month_num:02d}-{last_day}'
+            
+            if datetime.strptime(start_day, '%Y-%m-%d') > datetime.now():
                 yearly_results[acc_key]['monthly_averages'][month_name] = 'N/D'
             else:
-                month_data = fetch_account_data(acc_id, start, end)
+                month_data = fetch_account_data(acc_id, start_day, end_day)
                 yearly_results[acc_key]['monthly_averages'][month_name] = month_data['average_cpl']
 
     return jsonify(yearly_results)
+
 
 # --- INICIA O SERVIDOR ---
 if __name__ == '__main__':
